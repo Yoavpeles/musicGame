@@ -1,5 +1,6 @@
 import curses
 import random
+import secrets
 import pygame
 import time
 
@@ -15,7 +16,7 @@ notes = {
 }
 
 # Map keys to note names
-note_keys = {'a': 'C', 's': 'D', 'd': 'E', 'f': 'F'}
+note_keys = {'c': 'C', 'd': 'D', 'e': 'E', 'f': 'F'}
 
 def main(stdscr):
     # Initialize curses
@@ -26,10 +27,17 @@ def main(stdscr):
     # Player properties
     player = {'x': 1, 'y': 1, 'char': '@'}  # Player starts at (1, 1)
 
+# Generate a random 12-digit seed for the entire gameplay
+    game_seed = secrets.randbelow(10**12)  # Random 12-digit number
+    stdscr.addstr(0, 0, f"Game Seed: {game_seed}")  # Display the seed for replay purposes
+    stdscr.refresh()
+    time.sleep(1)
+
+
     # Generate multiple stages
     num_stages = 3
-    stages = [generate_stage(20, 10) for _ in range(num_stages)]
-    current_stage = 0
+    stages = generate_stages(2, 20, 10, game_seed)
+    current_stage = 1  # Start at stage 1
 
     # Store puzzles for each stage
     puzzles = [generate_music_puzzle(current_stage) for current_stage in range(num_stages)]
@@ -42,21 +50,21 @@ def main(stdscr):
     while True:
         stdscr.clear()  # Clear the screen
 
-        # Draw the current stage
-        draw_stage(stdscr, stages[current_stage])
+        # Draw the current stage map
+        draw_stage(stdscr, stages[current_stage]['map'])
 
         # Draw the player
         stdscr.addch(player['y'], player['x'], player['char'])
 
         # Handle player movement
         key = stdscr.getch()
-        if key == curses.KEY_UP and player['y'] > 1 and stages[current_stage][player['y'] - 1][player['x']] != '#':
+        if key == curses.KEY_UP and player['y'] > 1 and stages[current_stage]['map'][player['y'] - 1][player['x']] != '#':
             player['y'] -= 1
-        elif key == curses.KEY_DOWN and player['y'] < len(stages[current_stage]) - 2 and stages[current_stage][player['y'] + 1][player['x']] != '#':
+        elif key == curses.KEY_DOWN and player['y'] < len(stages[current_stage]['map']) - 2 and stages[current_stage]['map'][player['y'] + 1][player['x']] != '#':
             player['y'] += 1
-        elif key == curses.KEY_LEFT and player['x'] > 1 and stages[current_stage][player['y']][player['x'] - 1] != '#':
+        elif key == curses.KEY_LEFT and player['x'] > 1 and stages[current_stage]['map'][player['y']][player['x'] - 1] != '#':
             player['x'] -= 1
-        elif key == curses.KEY_RIGHT and player['x'] < len(stages[current_stage][0]) - 2 and stages[current_stage][player['y']][player['x'] + 1] != '#':
+        elif key == curses.KEY_RIGHT and player['x'] < len(stages[current_stage]['map'][0]) - 2 and stages[current_stage]['map'][player['y']][player['x'] + 1] != '#':
             player['x'] += 1
         elif key == ord('q'):
             break  # Quit the game
@@ -64,11 +72,11 @@ def main(stdscr):
         # If the player moved, reset the puzzle_failed flag if they left the tile
         if (player['x'], player['y']) != last_position:
             last_position = (player['x'], player['y'])  # Update last known position
-            if stages[current_stage][player['y']][player['x']] != 'M':
+            if stages[current_stage]['map'][player['y']][player['x']] != 'M':
                 puzzle_failed = False  # Reset if the player moved off the music tile
 
         # Check if the player reaches the music lock
-        if stages[current_stage][player['y']][player['x']] == 'M' and not puzzle_solved[current_stage] and not puzzle_failed:
+        if stages[current_stage]['map'][player['y']][player['x']] == 'M' and not puzzle_solved[current_stage] and not puzzle_failed:
             success = music_puzzle(stdscr, puzzles[current_stage])
             if success:
                 stdscr.addstr(0, 0, "You unlocked the music lock!")
@@ -81,7 +89,7 @@ def main(stdscr):
             time.sleep(1)
 
         # Check if the player reaches the exit
-        if stages[current_stage][player['y']][player['x']] == '+':
+        if stages[current_stage]['map'][player['y']][player['x']] == '+':
             if not puzzle_solved[current_stage]:
                 play_sound("door_locked.wav")
             else:
@@ -89,51 +97,64 @@ def main(stdscr):
                     current_stage += 1  # Go to the next stage
                     player['x'], player['y'] = 1, 1  # Reset player to the starting position
                 else:
+                    play_sound('end0.wav')
+                    play_sound('end1.wav')
+                    play_sound('end2.wav')
+                    play_sound('end3.wav')
                     stdscr.addstr(0, 0, "You finished all stages! Press 'q' to quit.")
                     stdscr.refresh()
                     stdscr.timeout(-1)
                     while stdscr.getch() != ord('q'):
                         pass
                     break
+
 def play_sound(arg):
     sound= pygame.mixer.Sound(arg)
     sound.play()
     pygame.time.wait(int(sound.get_length() * 1000)) 
 
-def generate_stage(width, height, num_obstacles=10):
-    """Generate a basic stage with boundary walls, random obstacles, and an exit."""
+def generate_stages(num_stages, width, height, game_seed):
+    stages = {}
+    for i in range(1, num_stages + 1):
+        stage = generate_stage(width, height, game_seed, i)  # Use game_seed and stage number for uniqueness
+        stages[i] = {'map': stage, 'width': width, 'height': height}
+    return stages
+
+def generate_stage(width, height, game_seed, stage_number):
     stage = []
-    
-    # Create the empty stage with boundary walls
+
+    # Seed the random generator with the game seed combined with the stage number
+    random.seed(game_seed + stage_number)
+
+    # Generate empty stage with boundary walls
     for y in range(height):
         row = []
         for x in range(width):
             if y == 0 or y == height - 1 or x == 0 or x == width - 1:
                 row.append('#')  # Boundary walls
             else:
-                row.append(' ')  # Empty space
+                row.append(' ')  # Empty space inside
         stage.append(row)
+
+    # Place obstacles randomly
+    obstacle_count = 10
+    for _ in range(obstacle_count):
+        while True:
+            x = random.randint(1, width - 2)
+            y = random.randint(1, height - 2)
+            if stage[y][x] == ' ':
+                stage[y][x] = '#'
+                break
 
     # Add an exit at a random position on the right side of the stage
     exit_x = width - 2
-    exit_y = height // 2  # Place exit at the middle of the right side
+    exit_y = random.randint(1, height - 2)
     stage[exit_y][exit_x] = '+'
 
     # Add a music lock at a random position
     music_lock_x = random.randint(1, width - 2)
     music_lock_y = random.randint(1, height - 2)
     stage[music_lock_y][music_lock_x] = 'M'  # Music lock tile
-
-    # Add random obstacles
-    obstacle_count = 0
-    while obstacle_count < num_obstacles:
-        obstacle_x = random.randint(1, width - 2)
-        obstacle_y = random.randint(1, height - 2)
-
-        # Ensure we don't place an obstacle on the player start, exit, or music lock
-        if stage[obstacle_y][obstacle_x] == ' ':
-            stage[obstacle_y][obstacle_x] = 'O'  # 'O' for obstacle
-            obstacle_count += 1
 
     return stage
 
@@ -167,12 +188,14 @@ def music_puzzle(stdscr, sequence):
 
 def play_sequence(sequence, stdscr):
     """Plays a sequence of notes using pygame and updates the terminal."""
+    height, s = stdscr.getmaxyx()
     for note in sequence:
-        stdscr.clear()
-        stdscr.addstr(0, 0, f"Playing note: {note}")  # Display the note being played
+        
+        stdscr.addstr(height - 1, 0, f"Playing note: {note}")  # Display the note being played
         stdscr.refresh()
         notes[note].play()  # Play the sound using pygame
         time.sleep(0.5)  # Pause between notes
+    stdscr.addstr(height - 1, 0, "                                                        ")  # Display the note being played
 
 def get_user_input(stdscr, length):
     """Get user input for a sequence of notes, limited by the length of the sequence."""
@@ -180,18 +203,19 @@ def get_user_input(stdscr, length):
     height, width = stdscr.getmaxyx()
 
     # Prompt the user to enter the sequence
-    stdscr.addstr(height - 2, 0, "Enter the sequence (use 'a', 's', 'd', 'f'): ")
+    stdscr.addstr(height - 2, 0, "Enter the sequence (use 'c', 'd', 'e', 'f'): ")
     stdscr.refresh()
 
     while len(user_input) < length:
         key = stdscr.getch()
 
-        if key in map(ord, 'asdf'):  # Only accept valid input keys
+        if key in map(ord, 'cdef'):  # Only accept valid input keys
             char = chr(key)
             user_input.append(char)
-            stdscr.addch(height - 2, len("Enter the sequence (use 'a', 's', 'd', 'f'): ") + len(user_input) - 1, char)
+            stdscr.addch(height - 2, len("Enter the sequence (use 'c', 'd', 'e', 'f'): ") + len(user_input) - 1, char)
             stdscr.refresh()
-
+    user_sequence = [note_keys[char] for char in user_input]
+    play_sequence(user_sequence,stdscr)
     return user_input
 
 if __name__ == "__main__":
